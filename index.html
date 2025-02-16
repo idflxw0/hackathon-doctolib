@@ -9,5 +9,10 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      fetch("http://localhost:8000/hello/John")
+        .then(response => response.json())
+        .then(data => console.log(data));
+    </script>
   </body>
 </html>
