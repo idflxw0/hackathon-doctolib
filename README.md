@@ -32,6 +32,7 @@ export default tseslint.config({
 ```js
 // eslint.config.js
 import react from 'eslint-plugin-react'
+![Capture d’écran 2025-02-16 à 11 56 33](https://github.com/user-attachments/assets/8a7c46e5-79d7-4d68-8461-a0ec74e2b038)
 
 export default tseslint.config({
   // Set the react version
