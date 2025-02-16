@@ -1,7 +1,7 @@
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-from rag import process_message  # 🔥 Import de la fonction de ton IA
+from rag2 import process_message  # 🔥 Import de la fonction de ton IA
 
 app = FastAPI()
 
