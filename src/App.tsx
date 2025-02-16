@@ -1,9 +1,9 @@
-import { Chat } from './components/Chat/Chat'
 
+import LandingPage from '@/pages/LandingPage'
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100 py-8">
-      <Chat />
+    <div className="bg-gray-100 py-8">
+      <LandingPage />
     </div>
   )
 }
