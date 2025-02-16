@@ -7,23 +7,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --- Additional Imports ---
-from mistralai import Mistral  # Corrected import
-from mistralai import UserMessage, SystemMessage, AssistantMessage  # NEW, use these
+from mistralai import Mistral
+from mistralai import UserMessage, SystemMessage, AssistantMessage
 from langchain_mistralai.embeddings import MistralAIEmbeddings
 from PyPDF2 import PdfReader, errors
 from langchain_community.document_loaders import PyMuPDFLoader
 import nltk
 from nltk.tokenize import sent_tokenize
 from dotenv import load_dotenv
-from rank_bm25 import BM25Okapi
+from rank_bm25 import BM25Okapi  # Not used in retrieval_only, but keep for potential hybrid search later
 from collections import Counter
 import torch
 from langchain_community.vectorstores import Milvus
 from langchain.globals import set_llm_cache
 from langchain_community.cache import InMemoryCache
-from langchain.retrievers import EnsembleRetriever
+# from langchain.retrievers import EnsembleRetriever  # Not needed in this simplified version
 from langchain_community.cache import InMemoryCache, SQLiteCache
-from langchain_community.retrievers import BM25Retriever
+# from langchain_community.retrievers import BM25Retriever  # Not used in retrieval_only
 from langchain_core.documents import Document
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -42,7 +42,7 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["HF_HOME"] = cache_dir
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 set_llm_cache(InMemoryCache())
-set_llm_cache(SQLiteCache(database_path="./.langchain.db"))
+set_llm_cache(SQLiteCache(database_path="./.langchain.db"))  # Good practice to keep
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
@@ -54,7 +54,7 @@ except LookupError:
     print("NLTK data downloaded.")
 
 
-# --- Helper Functions ---
+# --- Helper Functions --- (Keep these, they are useful)
 def load_documents_from_pdfs(pdf_dir: str) -> List[Document]:
     """Loads documents from PDFs using Langchain's PyMuPDFLoader."""
     documents = []
@@ -66,7 +66,7 @@ def load_documents_from_pdfs(pdf_dir: str) -> List[Document]:
         }
         for future in as_completed(futures):
             try:
-                documents.extend(future.result()) # Extend, as load_single_pdf now returns a list
+                documents.extend(future.result())
             except Exception as e:
                 print(f"Error loading PDF: {futures[future]}: {e}")
     return documents
@@ -75,26 +75,23 @@ def load_single_pdf(filepath: str) -> List[Document]:
     """Loads a single PDF using PyMuPDFLoader."""
     loader = PyMuPDFLoader(filepath)
     docs = loader.load()
-    # Immediately extract filename and add it to metadata
     filename = os.path.basename(filepath)
     for doc in docs:
         doc.metadata['filename'] = filename
-        if 'file_path' in doc.metadata: #Clean the metadata
+        if 'file_path' in doc.metadata:
             del doc.metadata['file_path']
         if 'source' in doc.metadata:
             del doc.metadata['source']
     return docs
 
-# --- Embedding ---
+# --- Embedding --- (Keep this)
 class LLMEmbedder:
     def __init__(self, model_name: str = "mistral-embed", batch_size: int = 32):
         self.model_name = model_name
         self.batch_size = batch_size
-        self.embedder = MistralAIEmbeddings(model=model_name, mistral_api_key=api_key) # Use MistralAIEmbeddings
-        # No need for dimension check/projection - MistralAIEmbeddings handles it.
+        self.embedder = MistralAIEmbeddings(model=model_name, mistral_api_key=api_key)
 
     def embed(self, texts: List[str]) -> List[List[float]]:
-        #MistralAIEmbeddings has embed_documents, and no encode method.
         all_embeddings = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i: i + self.batch_size]
@@ -102,7 +99,7 @@ class LLMEmbedder:
             all_embeddings.extend(embeddings)
         return all_embeddings
 
-# --- Reranker ---
+# --- Reranker --- (You might not need this in the retrieval_only version, but it's good to have)
 class MistralReranker:
     def __init__(self, model_name: str = "mistral-large-latest", batch_size: int = 4):
         self.client = Mistral(api_key=api_key)
@@ -123,7 +120,7 @@ class MistralReranker:
     def process_batch(self, query: str, batch: List[str]) -> List[float]:
         batch_scores = []
         messages_batch = [
-            [  # List of messages for each chat completion
+            [
                 SystemMessage(
                     content="You are a helpful assistant that ranks documents based on their relevance to a query. Rank the following document as a float between 0 and 1, with 1 being the most relevant.",
                 ),
@@ -134,22 +131,21 @@ class MistralReranker:
             for doc_text in batch
         ]
         try:
-            # Use chat completions, not text completion
             for messages in messages_batch:
-                response = self.client.chat(model=self.model_name, messages=messages) #Corrected
+                response = self.client.chat(model=self.model_name, messages=messages)
                 try:
                     score = float(response.choices[0].message.content)
                     batch_scores.append(score)
                 except ValueError:
                     print(f"Warning: Could not parse ranking score. Defaulting to 0.")
                     batch_scores.append(0.0)
-
         except Exception as e:
             print(f"An error occurred during reranking: {e}")
-            batch_scores.extend([0.0] * len(batch))  # Default scores if error
+            batch_scores.extend([0.0] * len(batch))
         return batch_scores
 
-# --- Semantic Chunking ---
+
+# --- Semantic Chunking --- (Keep this, but you only need it if you re-index)
 def semantic_chunk_texts(documents: List[Document],
                          embedder,
                          similarity_threshold: float = 0.7,
@@ -192,166 +188,31 @@ def semantic_chunk_texts(documents: List[Document],
                     current_chunk_embeddings.extend(window_embeddings[-(window_size - overlap):])
                 else:
                     if len(current_chunk) >= min_chunk_sentences:
-                        # Create a new Document object, copying metadata
                         new_doc = Document(page_content=" ".join(current_chunk), metadata=doc.metadata.copy())
                         all_chunks.append(new_doc)
                     current_chunk = window_sentences
                     current_chunk_embeddings = window_embeddings
-        #Corrected if statement here:
-        if current_chunk:  # Append any remaining sentences, even if less than min_chunk_sentences
+        if current_chunk:
             new_doc = Document(page_content=" ".join(current_chunk), metadata=doc.metadata.copy())
             all_chunks.append(new_doc)
 
     return all_chunks
 
-# --- Main RAG Pipeline Function ---
-def rag_pipeline(query: str, pdf_dir: str, model_for_finetune: Optional[Any] = None) -> Dict[str, Any]:
-    from pymilvus import connections, utility, Collection, FieldSchema, DataType, CollectionSchema
-
-    print("=== 1) Loading Documents ===")
-    documents = load_documents_from_pdfs(pdf_dir)
-    # lc_documents = [Document(page_content=doc["text"], metadata={"filename": doc["filename"]}) for doc in documents]
-
-    print("=== 2) Chunking (Semantic) ===")
-    embedder_for_chunking = LLMEmbedder()  # Use default (fast) embedder
-    chunks_dicts = semantic_chunk_texts(documents, embedder_for_chunking)
-    chunks = [Document(page_content=chunk.page_content, metadata=chunk.metadata.copy()) for chunk in chunks_dicts]
-    print(f"Number of chunks: {len(chunks)}")
-
-    print("\n=== 3) Embedding ===")
-    embedder = LLMEmbedder()  # Create embedder instance (SentenceTransformer)
-
-    print("\n=== 4) Vector Store (Milvus) ===")
-    connections.connect("default", host="localhost", port="19530")
-
-    collection_name = "rag_collection"
-    if utility.has_collection(collection_name):
-        utility.drop_collection(collection_name)
-
-    # Define schema *before* creating collection.  Milvus needs explicit schema definition.
-    fields = [
-        FieldSchema(name="pk", dtype=DataType.INT64, is_primary=True, auto_id=True),  # Primary key, auto-incrementing
-        FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),  # Store chunk text
-        FieldSchema(name="filename", dtype=DataType.VARCHAR, max_length=512),  # Store filename
-        FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=1024)  # Embedding dimension for all-MiniLM-L6-v2
-    ]
-    schema = CollectionSchema(fields, "RAG Document Collection")
-    vector_store = Collection(name=collection_name, schema=schema)
-
-    # Batch insert into Milvus
-    texts = [chunk.page_content for chunk in chunks]
-    filenames = [chunk.metadata.get('filename', 'unknown_file.pdf') for chunk in chunks] # Get filename directly
-    embeddings = embedder.embed(texts)  # Get embeddings for all chunks
-
-    insert_data = [
-        texts,
-        filenames,
-        embeddings
-    ]
-
-    vector_store.insert(insert_data)
-    vector_store.flush() # Ensure data is written
-
-    # Create an index for faster retrieval
-    index_params = {
-        "metric_type": "L2",  # Or "IP" (Inner Product) if you normalize embeddings
-        "index_type": "IVF_FLAT",  # Good for smaller datasets, good balance of speed/accuracy
-        "params": {"nlist": 1024}  # Number of clusters for IVF.  Adjust as needed.
-    }
-    vector_store.create_index(field_name="vector", index_params=index_params)
-    vector_store.load()
-
-    print("\n=== 5) Retrieval (Hybrid) ===")
-
-    # Vector search using Milvus directly (more efficient)
-    search_params = {
-        "metric_type": "L2",
-        "params": {"nprobe": 10},  # Number of clusters to search. Adjust as needed.
-    }
-
-    result = vector_store.search(
-        data=[embedder.embed([query])[0]],  # Embed the query *once*
-        anns_field="vector",
-        param=search_params,
-        limit=5,  # Top k
-        expr=None,  #  Filtering (if needed)
-        output_fields=["text", "filename"],  #  Retrieve text and filename
-    )
-
-    retrieved_docs = []
-    for hits in result:
-        for hit in hits:
-            retrieved_docs.append(Document(page_content=hit.entity.get("text"), metadata={"filename": hit.entity.get("filename")}))
-
-    # BM25 (Keyword-based retrieval) - Use the same chunks
-    bm25_retriever = BM25Retriever.from_documents(chunks)
-    bm25_retriever.k = 5
-    bm25_docs = bm25_retriever.get_relevant_documents(query)
-
-    #Combine in a set to avoid duplicates, then convert back to list
-    # Use a dictionary comprehension to create unique documents based on content and file_path/filename.
-    combined_docs = list({
-        (doc.page_content, doc.metadata.get('filename', 'unknown')): doc
-        for doc in retrieved_docs + bm25_docs
-    }.values())
-
-    print("Documents Retrieved (Before Reranking):")
-    for doc in combined_docs:
-        # Get filename, handling both 'filename' and 'file_path' keys, and providing a default.
-        filename = doc.metadata.get('filename', doc.metadata.get('file_path', 'Unknown Filename'))
-        # Extract filename from file_path if necessary
-        if 'file_path' in doc.metadata and 'filename' not in doc.metadata:
-            filename = os.path.basename(filename)
-        print(f"  - Filename: {filename[:-4] if filename != 'Unknown Filename' else filename}..., Text: {doc.page_content[:100]}...")
-
-    print("\n=== 6) Reranking (Mistral) ===")
-    reranker = MistralReranker()  # Use the optimized MistralReranker
-    reranked_docs = reranker.rerank(query, combined_docs)
-    print("Documents after reranking:")
-    for doc in reranked_docs:
-        #Get filename with default.
-        filename = doc.metadata.get('filename', 'Unknown Filename')
-        print(f"  - Filename: {filename[:-4] if filename != 'Unknown Filename' else filename}..., Text: {doc.page_content[:100]}...")
-
-    print("\n=== 7) Summarization and QA (Mistral Large) ===")
-    context = " ".join([doc.page_content for doc in reranked_docs])
-    messages = [
-        SystemMessage(
-            content="You are a helpful assistant that answers questions based on the provided context.  If the context does not contain the answer, say 'The context does not provide information to answer this query.'",
-        ),
-        UserMessage(
-            content= f"Context information is below.\n---------------------\n{context}\n---------------------\nGiven the context information and not prior knowledge, answer the query.\nQuery: {query}\nAnswer:",
-        ),
-    ]
-    response = client.chat(
-    model=MODEL,
-    messages=messages
-    )
-
-    source_documents = []
-    for doc in retrieved_docs:
-        filename = doc.metadata["filename"]
-        if filename not in source_documents:
-            source_documents.append(filename)
-
-        return {
-        "answer": response.choices[0].message.content,
-        "source_documents": source_documents,
-    }
 
 
 # Modified retrieval_only_pipeline function
-def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection") -> Dict[str, Any]:
+def retrieval_only_pipeline(initial_query: str, collection_name: str = "rag_collection") -> Dict[str, Any]:
     """
     Performs retrieval-based question answering using an existing Milvus collection.
-    Does NOT handle document loading or indexing.
+    Does NOT handle document loading or indexing.  Starts an interactive chat session.
 
     Args:
-        query: The user's question.
+        initial_query:  The user's first question or statement.  Used to seed the retrieval.
         collection_name: The name of the Milvus collection to query.
 
     Returns:
-        A dictionary containing the answer and the source documents.
+        A dictionary containing the chat history.  The "answer" key is not used, as the
+        output is the interactive chat.
     """
     from pymilvus import connections, Collection, utility
 
@@ -366,7 +227,7 @@ def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection")
 
     print("\n=== 2) Embedding Query ===")
     embedder = LLMEmbedder()  # Create embedder instance
-    query_embedding = embedder.embed([query])[0]
+    query_embedding = embedder.embed([initial_query])[0]
 
     print("\n=== 3) Retrieval from Milvus ===")
     search_params = {
@@ -387,18 +248,25 @@ def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection")
     for hits in result:
         for hit in hits:
             retrieved_docs.append(
-                {  # Use a dictionary, like the original example
-                    "text": hit.entity.get("text"),
-                    "filename": hit.entity.get("filename"),
-                }
+                Document(  # Use Document objects, for consistency
+                    page_content=hit.entity.get("text"),
+                    metadata={"filename": hit.entity.get("filename")},
+                )
             )
 
     print("\n=== 4) Summarization and QA (Mistral Large) ===")
-    
-    # Create initial messages
+
+    # --- CRITICAL CHANGE:  Build context from retrieved documents ---
+    context = " ".join([doc.page_content for doc in retrieved_docs])
+    if not context:
+        context = "No relevant documents found."  # Handle case with no results
+    else:
+        context = "Relevant context from your documents:\n" + context
+
+    # Create initial messages, including the context
     initial_messages = [
-        SystemMessage(content="""
-            Tu es un chat bot pour aider les patients à se connecter avec leur médecin ou déclarer une urgence. Tu vas classer les messages en cinq catégories, allant de "très urgent" à "moins urgent". Voici comment je vais procéder :
+        SystemMessage(content=f"""
+            Tu es une messagerie vocale d'hôpital. Tu vas classer les messages en cinq catégories, allant de "très urgent" à "moins urgent". Voici comment je vais procéder :
 
         1. **Très urgent** : Situations nécessitant une intervention immédiate (ex. : crise cardiaque, difficulté respiratoire sévère).
         2. **Urgent** : Problèmes médicaux sérieux nécessitant une attention rapide (ex. : douleur intense, blessure grave).
@@ -408,7 +276,7 @@ def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection")
 
         Vous pouvez maintenant m'envoyer des messages, et je les classerai en conséquence.
 
-        Dans chaques cas essaye d'approfondir pour mieux comprendre les symptomes.
+        dans chaques cas essaye d'approfondir pour mieux comprendre les symptomes
 
         D'accord, je vais essayer d'approfondir chaque cas pour mieux comprendre les symptômes. Voici quelques questions et considérations pour chaque niveau de gravité :
 
@@ -444,11 +312,13 @@ def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection")
 
         Ces questions peuvent aider à mieux comprendre la situation et à fournir des conseils plus appropriés. Si vous avez un autre message ou symptôme à partager, n'hésitez pas !
 
-        Pose les questions une a une a chaque fois comme si nous étions en conversation et que tu attendais une réponse de ma part pour continuer.
-                      
-        Il faudra aussi que les gens ne mentent pas pour avoir un rendez-vous plus rapidement alors que d'autres en auront besoin, il faudra donc creuser.
+        pose les questions une a une a chaque fois comme si nous étions en conversation et que tu attendais une réponse de ma part pour continuer
+
+            Utilise ce contexte pour ta réponse, mais priorise la question posée par l'utilisateur:
+
+            {context}
             """),
-        UserMessage(content=f"I am leaving you this message: {query}"), # Initial user message
+        UserMessage(content=f"{initial_query}"),  # User's first message/query
     ]
 
     # Initialize chat_history with the initial messages
@@ -456,65 +326,40 @@ def retrieval_only_pipeline(query: str, collection_name: str = "rag_collection")
 
     # --- Interactive Chat Loop ---
     while True:
-        # Handle different possible ways to call the Mistral client based on its structure
         try:
-            # Try different approaches to make a chat request
-            if hasattr(client, '__call__'):
-                # If client itself is callable
-                response = client(model=MODEL, messages=chat_history)
-            elif hasattr(client, 'chat') and callable(client.chat):
-                # If client.chat is a method
-                response = client.chat(model=MODEL, messages=chat_history)
-            elif hasattr(client, 'chat') and hasattr(client.chat, '__call__'):
-                # If client.chat is an object but callable
+            # Choose the correct method to call based on the client object structure
+            if hasattr(client, 'chat') and callable(client.chat):
                 response = client.chat(model=MODEL, messages=chat_history)
             elif hasattr(client, 'chat') and hasattr(client.chat, 'complete'):
-                # If client.chat has a create method
                 response = client.chat.complete(model=MODEL, messages=chat_history)
-            elif hasattr(client, 'create_chat_completion'):
-                # Try common OpenAI-style method
-                response = client.create_chat_completion(model=MODEL, messages=chat_history)
             else:
                 raise AttributeError("Could not find a valid way to call the Mistral client")
-                
+
+            assistant_response = response.choices[0].message.content
+            print(f"Assistant: {assistant_response}")
+            chat_history.append(AssistantMessage(content=assistant_response))
+
+            user_input = input("You: ")
+            if user_input.lower() in ["exit", "quit", "stop", "bye"]:
+                break
+            chat_history.append(UserMessage(content=user_input))
+
         except Exception as e:
-            print(f"Error calling Mistral API: {str(e)}")
-            print("Please check the client implementation and update the code accordingly.")
+            print(f"An error occurred: {e}")
             break
-        
-        assistant_response = response.choices[0].message.content
-        print(f"Assistant: {assistant_response}")
-        chat_history.append(AssistantMessage(content=assistant_response))
-
-        user_input = input("You: ")
-        if user_input.lower() in ["exit", "quit", "stop", "bye"]:
-            break
-        chat_history.append(UserMessage(content=user_input))
-
-    source_documents = []
-    for doc in retrieved_docs:
-      filename = doc["filename"]
-      if filename not in source_documents:
-          source_documents.append(filename)
 
     return {
-        "answer": '', #response.choices[0].message.content,  # No direct answer in chat mode
-        "source_documents": source_documents,
-        "chat_history": [message.model_dump() if hasattr(message, 'model_dump') else {'role': message.role, 'content': message.content} for message in chat_history]  # NEW way to serialize
+        "answer": '',  # No direct answer in chat mode
+        "source_documents": [doc.metadata['filename'] for doc in retrieved_docs],  # List of filenames
+        "chat_history": [message.model_dump() if hasattr(message, 'model_dump') else {'role': message.role, 'content': message.content} for message in chat_history]
     }
+
 
 
 # --- Example Usage ---
 if __name__ == "__main__":
-    pdf_directory = "Doc"  # Corrected relative path
-    #query = str(input("Bonjour, en quoi puis-je vous aider ?\n")) # Moved to chat loop
+    pdf_directory = "Doc"
+    results = retrieval_only_pipeline("Start")  # Use retrieval_only_pipeline
 
-    # results = rag_pipeline(query, pdf_directory)
-    results = retrieval_only_pipeline("Start") # No initial query, just start the conversation
-
-    #print("\n=== RÉSULTATS ===")  # No initial results
-    #print("Answer:\n", results["answer"])
-    #print("\nDocuments sources:")
-    #for doc_name in results["source_documents"]:
-    #    print(f"  - {doc_name}")
-    # Chat history is printed within the loop.
+    # The chat happens within the retrieval_only_pipeline function.
+    # You don't need to print results here; the conversation is interactive.
