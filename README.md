@@ -1,51 +1,138 @@
-# React + TypeScript + Vite
+# 📌 Chatbot Doctolib - Priorisation des Urgences Médicales
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## 🏥 Description du Projet
 
-Currently, two official plugins are available:
+Ce projet est un **chatbot médical** intégré à Doctolib permettant aux patients d'expliquer leur **situation d'urgence** afin d'obtenir un rendez-vous plus rapidement avec :
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Leur **médecin traitant** ✅
+- Un **autre médecin disponible** en cas d'indisponibilité ❌
 
-## Expanding the ESLint configuration
+Notre **IA détecte les personnes mentant sur leur état de santé** et les oriente uniquement vers un **consultant disponible**, garantissant ainsi un accès prioritaire aux véritables urgences.
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+---
 
-- Configure the top-level `parserOptions` property like this:
+## ⚙️ Technologies Utilisées
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### Backend
+
+- **FastAPI** - API REST rapide et asynchrone 🚀
+- **Milvus** - Base de données vectorielle pour la recherche de symptômes 🧠
+- **ETCD** - Stockage distribué des configurations ⚙️
+- **MinIO** - Stockage d'objets pour les dossiers médicaux 📁
+
+### Chatbot (NLP)
+
+- **Python** (Flask pour le chatbot 🤖)
+- **Transformers (Hugging Face)** - Modèles IA de compréhension du langage naturel 🏥
+- **spaCy / NLTK** - Analyse de texte 📊
+
+### DevOps & Conteneurisation
+
+- **Docker & Docker-Compose** - Conteneurisation de l'API et du chatbot 🐳
+- **Nginx** - Proxy et gestion des requêtes 🌐
+
+### Frontend
+
+- **React.js / Vue.js** (au choix) - Interface utilisateur intuitive 🎨
+- **Fetch API / Axios** - Communication avec l'API 📨
+
+---
+
+## 🏗️ Architecture du Projet
+
+```bash
+.
+├── backend
+│   ├── app
+│   │   ├── __init__.py
+│   │   ├── main.py  # FastAPI pour gérer les requêtes
+│   │   ├── chatbot.py  # Connexion avec le chatbot
+│   │   ├── models.py  # Schéma Pydantic
+│   ├── Dockerfile
+│   ├── requirements.txt
+├── chatbot
+│   ├── app.py  # API Flask pour le chatbot
+│   ├── model.pkl  # Modèle NLP entraîné
+│   ├── Dockerfile
+│   ├── requirements.txt
+├── frontend
+│   ├── src
+│   │   ├── components
+│   │   ├── pages
+│   │   ├── App.js  # Interface principale
+│   ├── package.json
+│   ├── Dockerfile
+├── docker-compose.yml  # Orchestration des services
+├── README.md
+
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+---
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-![Capture d’écran 2025-02-16 à 11 56 33](https://github.com/user-attachments/assets/8a7c46e5-79d7-4d68-8461-a0ec74e2b038)
+## 🔧 Installation et Déploiement
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+### 1️⃣ Cloner le projet
+
 ```
+git clone https://github.com/votre-repo/chatbot-doctolib.git
+cd chatbot-doctolib
+
+```
+
+Warning :
+
+Pour pouvoir utiliser la démo il faudra lanrcr les commandes suivant:
+
+docker-compose up -d
+
+npm run dev
+
+Dans un autre terminal
+
+$env : MISTRAL_API_KEY = "api_key"2️⃣ Lancer les conteneurs Docker
+
+```
+docker-compose up -d --build
+
+```
+
+✅ FastAPI est accessible sur [**http://localhost:8000**](http://localhost:8000/)
+✅ Swagger API Docs : [**http://localhost:8000/docs**](http://localhost:8000/docs)
+✅ Chatbot tourne sur [**http://localhost:5000**](http://localhost:5000/)
+
+### 3️⃣ Tester l'API
+
+Envoyer une requête au chatbot :
+
+```
+curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/json" -d '{"message": "J’ai 40°C de fièvre et je tousse"}'
+
+```
+
+🔹 Réponse JSON :
+
+```json
+{
+  "urgence": "élevée",
+  "rdv": "Médecin traitant disponible sous 24h"
+}
+
+```
+
+---
+
+## 🛠️ Fonctionnalités du Chatbot
+
+✔️ **Analyse des symptômes en langage naturel** 🤖
+✔️ **Évaluation de l'urgence médicale** 🔥
+✔️ **Priorisation des rendez-vous médicaux** 🏥
+✔️ **Détection des tentatives de fraude** 🚫
+✔️ **Interaction rapide et fluide** 💬
+
+---
+
+## 🔜 Améliorations Futures
+
+- 🔹 Amélioration du modèle IA avec **BERT médical** 🏥
+- 🔹 Intégration avec **Google Calendar** pour réservation automatique 📅
+- 🔹 Ajout de la **reconnaissance vocale** 🎙️
